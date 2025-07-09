@@ -30,6 +30,12 @@ using symbol_shorthand::V; // Vel   (xdot,ydot,zdot)
 using symbol_shorthand::B; // Bias  (ax,ay,az,gx,gy,gz)
 using symbol_shorthand::G; // GPS pose
 
+//TODO Delete
+static double max_time_diff = 0.0;
+static double min_time_diff = std::numeric_limits<double>::max();
+static double total_time_diff = 0.0;
+static size_t time_diff_count = 0;
+
 /*
     * A point cloud type that has 6D pose info ([x,y,z,roll,pitch,yaw] intensity is time stamp)
     */
@@ -89,6 +95,8 @@ public:
 
     vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> cornerCloudKeyFrames;
     vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> surfCloudKeyFrames;
+    vector<pcl::PointCloud<PointType>::Ptr> cornerCloudKeyFramesFull;
+    vector<pcl::PointCloud<PointType>::Ptr> surfCloudKeyFramesFull;
     
     pcl::PointCloud<PointType>::Ptr cloudKeyPoses3D;
     pcl::PointCloud<PointTypePose>::Ptr cloudKeyPoses6D;
@@ -99,6 +107,12 @@ public:
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr laserCloudSurfLast; // surf feature set from odoOptimization
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr laserCloudCornerLastDS; // downsampled corner feature set from odoOptimization
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr laserCloudSurfLastDS; // downsampled surf feature set from odoOptimization
+    pcl::PointCloud<PointType>::Ptr laserCloudCornerLastFull; // corner feature set from odoOptimization
+    pcl::PointCloud<PointType>::Ptr laserCloudSurfLastFull; // surf feature set from odoOptimization
+    pcl::PointCloud<PointType>::Ptr laserCloudCornerLastDSFull; // downsampled corner feature set from odoOptimization
+    pcl::PointCloud<PointType>::Ptr laserCloudSurfLastDSFull; // downsampled surf feature set from odoOptimization
+
+    
 
 //    pcl::PointCloud<pcl::PointXYZRGB>::Ptr laserCloudCornerLastRGB; // downsampled rgb corner feature
 //    pcl::PointCloud<pcl::PointXYZRGB>::Ptr laserCloudSurfLastRGB; // downsampled rgb surf feature
@@ -225,12 +239,12 @@ public:
             string saveMapDirectory;
             cout << "****************************************************" << endl;
             cout << "Saving map to pcd files ..." << endl;
-            if(req->destination.empty()) saveMapDirectory = std::getenv("HOME") + savePCDDirectory;
-            else saveMapDirectory = std::getenv("HOME") + req->destination;
+            if(req->destination.empty()) saveMapDirectory = savePCDDirectory;
+            else saveMapDirectory = req->destination;
             cout << "Save destination: " << saveMapDirectory << endl;
             // create directory and remove old files;
-            int unused = system((std::string("exec rm -r ") + saveMapDirectory).c_str());
-            unused = system((std::string("mkdir -p ") + saveMapDirectory).c_str());
+            // int unused = system((std::string("exec rm -r ") + saveMapDirectory).c_str());
+            // unused = system((std::string("mkdir -p ") + saveMapDirectory).c_str());
             // save key frame transformations
             pcl::io::savePCDFileBinary(saveMapDirectory + "/trajectory.pcd", *cloudKeyPoses3D);
             pcl::io::savePCDFileBinary(saveMapDirectory + "/transformations.pcd", *cloudKeyPoses6D);
@@ -344,6 +358,10 @@ public:
         laserCloudSurfLast.reset(new pcl::PointCloud<pcl::PointXYZRGB>()); // surf feature set from odoOptimization
         laserCloudCornerLastDS.reset(new pcl::PointCloud<pcl::PointXYZRGB>()); // downsampled corner featuer set from odoOptimization
         laserCloudSurfLastDS.reset(new pcl::PointCloud<pcl::PointXYZRGB>()); // downsampled surf featuer set from odoOptimization
+        laserCloudCornerLastFull.reset(new pcl::PointCloud<PointType>()); // corner feature set from odoOptimization
+        laserCloudSurfLastFull.reset(new pcl::PointCloud<PointType>()); // surf feature set from odoOptimization
+        laserCloudCornerLastDSFull.reset(new pcl::PointCloud<PointType>()); // downsampled corner featuer set from odoOptimization
+        laserCloudSurfLastDSFull.reset(new pcl::PointCloud<PointType>()); // downsampled surf featuer set from odoOptimization
 
         laserCloudOri.reset(new pcl::PointCloud<PointType>());
         coeffSel.reset(new pcl::PointCloud<PointType>());
@@ -382,8 +400,13 @@ public:
         // extract info and feature cloud
         cloudInfo = *msgIn;
 
+        //TODO
         laserCloudCornerLast->clear();
         laserCloudSurfLast->clear();
+        laserCloudCornerLastFull->clear();
+        laserCloudSurfLastFull->clear();
+        pcl::fromROSMsg(msgIn->cloud_corner,  *laserCloudCornerLastFull);
+        pcl::fromROSMsg(msgIn->cloud_surface, *laserCloudSurfLastFull);
 
         std::for_each(camera_type_stdmap_.begin(), camera_type_stdmap_.end(),
                       [this, msgIn](const std::pair<std::string, color_point_cloud::CameraTypePtr> &pair) {
@@ -403,7 +426,33 @@ public:
                               return;
                           }
 
+
+                          //TODO Delete
+                        //   rclcpp::Time lidar_time(msgIn->cloud_corner.header.stamp);
+                        //   rclcpp::Time image_time(pair.second->get_image_msg()->header.stamp);
+                        //   double time_diff = std::fabs((lidar_time - image_time).seconds());
+                        //   if (time_diff > 0.2)
+                        //   {
+                        //       RCLCPP_WARN(this->get_logger(),
+                        //                   "[%s] Skip colorize: time diff = %.6f > 0.2",
+                        //                   pair.first.c_str(), time_diff);                              
+                        //       //   max_time_diff = std::max(max_time_diff, time_diff);
+                        //       //   min_time_diff = std::min(min_time_diff, time_diff);
+                        //       //   total_time_diff += time_diff;
+                        //       //   ++time_diff_count;
+                        //       //   double avg_time_diff = total_time_diff / time_diff_count;
+                        //       //   RCLCPP_INFO(this->get_logger(),
+                        //       //               "[Time Diff] Current: %.6f s | Avg: %.6f s | Max: %.6f s | Min: %.6f s",
+                        //       //               time_diff, avg_time_diff, max_time_diff, min_time_diff);                              
+                        //   }
+
                           pair.second->set_cv_image(pair.second->get_image_msg());
+                          const auto &image = pair.second->get_cv_image();
+                          if (image.type() != CV_8UC3)
+                          {
+                              RCLCPP_WARN(this->get_logger(), "Image type is not CV_8UC3. Got: %d", image.type());
+                              return;
+                          }
 
                           color_point_cloud::PointCloudConst cloud_corner{msgIn->cloud_corner};
 
@@ -424,45 +473,51 @@ public:
                               double x = point2d_transformed_camera[0];
                               double y = point2d_transformed_camera[1];
 
-                              if (x < 0 || x > pair.second->get_image_width() || y < 0 ||
-                                  y > pair.second->get_image_height() ||
-                                  point3d_transformed_camera[2] < 0) {
-                                  // TODO: If you give 0 to r, g, b, it will be more matt when you visualize on CloudCompare.
-                                  // pointRGB.x = point.x;
-                                  // pointRGB.y = point.y;
-                                  // pointRGB.z = point.z;
-                                  // pointRGB.r = 0;
-                                  // pointRGB.g = 0;
-                                  // pointRGB.b = 0;
-                                  // pointRGB.rgb = 0;
-                              } else {
-                                  cv::Vec3d color = pair.second->get_cv_image().at<cv::Vec3b>(cv::Point(x, y));
-                                  cv::Scalar color_scalar(color[0], color[1], color[2]);
-
-                                  pointRGB.x = point.x;
-                                  pointRGB.y = point.y;
-                                  pointRGB.z = point.z;
-
-                                  if (pair.second->get_image_msg()->encoding == "rgb8") {
-                                      pointRGB.r = color[0];
-                                      pointRGB.g = color[1];
-                                      pointRGB.b = color[2];
-                                      uint32_t rgb = (uint32_t(color[0]) << 16 | uint32_t(color[1]) << 8 |
-                                                      uint32_t(color[2]));
-                                  } else if (pair.second->get_image_msg()->encoding == "bgr8") {
-                                      pointRGB.r = color[0];
-                                      pointRGB.g = color[1];
-                                      pointRGB.b = color[2];
-                                      uint32_t rgb = (uint32_t(color[2]) << 16 | uint32_t(color[1]) << 8 |
-                                                      uint32_t(color[0]));
-                                  } else {
-                                      pointRGB.r = color[0];
-                                      pointRGB.g = color[1];
-                                      pointRGB.b = color[2];
-                                      uint32_t rgb = (uint32_t(color[0]) << 16 | uint32_t(color[1]) << 8 |
-                                                      uint32_t(color[2]));
+                              if (point3d_transformed_camera[2] > 0 && x >= 0.5 && x < pair.second->get_image_width() - 0.5 && y >= 0.5 && y < pair.second->get_image_height() - 0.5)
+                              {
+                                  cv::Mat patch;
+                                  cv::getRectSubPix(image, cv::Size(1, 1), cv::Point2f(x, y), patch);
+                                  if (!patch.empty())
+                                  {
+                                      pointRGB.x = point.x;
+                                      pointRGB.y = point.y;
+                                      pointRGB.z = point.z;
+                                      cv::Vec3b color = patch.at<cv::Vec3b>(0, 0);
+                                      if (pair.second->get_image_msg()->encoding == "bgr8")
+                                      {
+                                          pointRGB.r = color[2];
+                                          pointRGB.g = color[1];
+                                          pointRGB.b = color[0];
+                                      }
+                                      else
+                                      {
+                                          pointRGB.r = color[0];
+                                          pointRGB.g = color[1];
+                                          pointRGB.b = color[2];
+                                      }
                                   }
                               }
+
+                            //   if (x > 0 && x < pair.second->get_image_width() && y > 0 && y < pair.second->get_image_height() && point3d_transformed_camera[2] > 0)
+                            //   {
+                            //       cv::Vec3d color = pair.second->get_cv_image().at<cv::Vec3b>(cv::Point(x, y));
+                            //       cv::Scalar color_scalar(color[0], color[1], color[2]);
+                            //       pointRGB.x = point.x;
+                            //       pointRGB.y = point.y;
+                            //       pointRGB.z = point.z;
+                            //       if (pair.second->get_image_msg()->encoding == "bgr8")
+                            //       {
+                            //           pointRGB.r = color[2];
+                            //           pointRGB.g = color[1];
+                            //           pointRGB.b = color[0];
+                            //       }
+                            //       else
+                            //       {
+                            //           pointRGB.r = color[0];
+                            //           pointRGB.g = color[1];
+                            //           pointRGB.b = color[2];
+                            //       }
+                            //   }
 
                               laserCloudCornerLast->push_back(pointRGB);
                               cloud_corner.nextPoint();
@@ -487,45 +542,52 @@ public:
                               double x = point2d_transformed_camera[0];
                               double y = point2d_transformed_camera[1];
 
-                              if (x < 0 || x > pair.second->get_image_width() || y < 0 ||
-                                  y > pair.second->get_image_height() ||
-                                  point3d_transformed_camera[2] < 0) {
-                                  // TODO: If you give 0 to r, g, b, it will be more matt when you visualize on CloudCompare.
-                                  // pointRGB.x = point.x;
-                                  // pointRGB.y = point.y;
-                                  // pointRGB.z = point.z;
-                                  // pointRGB.r = 0;
-                                  // pointRGB.g = 0;
-                                  // pointRGB.b = 0;
-                                  // pointRGB.rgb = 0;
-                              } else {
-                                  cv::Vec3d color = pair.second->get_cv_image().at<cv::Vec3b>(cv::Point(x, y));
-                                  cv::Scalar color_scalar(color[0], color[1], color[2]);
-
-                                  pointRGB.x = point.x;
-                                  pointRGB.y = point.y;
-                                  pointRGB.z = point.z;
-
-                                  if (pair.second->get_image_msg()->encoding == "rgb8") {
-                                      pointRGB.r = color[0];
-                                      pointRGB.g = color[1];
-                                      pointRGB.b = color[2];
-                                      uint32_t rgb = (uint32_t(color[0]) << 16 | uint32_t(color[1]) << 8 |
-                                                      uint32_t(color[2]));
-                                  } else if (pair.second->get_image_msg()->encoding == "bgr8") {
-                                      pointRGB.r = color[0];
-                                      pointRGB.g = color[1];
-                                      pointRGB.b = color[2];
-                                      uint32_t rgb = (uint32_t(color[2]) << 16 | uint32_t(color[1]) << 8 |
-                                                      uint32_t(color[0]));
-                                  } else {
-                                      pointRGB.r = color[0];
-                                      pointRGB.g = color[1];
-                                      pointRGB.b = color[2];
-                                      uint32_t rgb = (uint32_t(color[0]) << 16 | uint32_t(color[1]) << 8 |
-                                                      uint32_t(color[2]));
+                              if (point3d_transformed_camera[2] > 0 && x >= 0.5 && x < pair.second->get_image_width() - 0.5 && y >= 0.5 && y < pair.second->get_image_height() - 0.5)
+                              {
+                                  cv::Mat patch;
+                                  cv::getRectSubPix(image, cv::Size(1, 1), cv::Point2f(x, y), patch);
+                                  if (!patch.empty())
+                                  {
+                                      pointRGB.x = point.x;
+                                      pointRGB.y = point.y;
+                                      pointRGB.z = point.z;
+                                      cv::Vec3b color = patch.at<cv::Vec3b>(0, 0);
+                                      if (pair.second->get_image_msg()->encoding == "bgr8")
+                                      {
+                                          pointRGB.r = color[2];
+                                          pointRGB.g = color[1];
+                                          pointRGB.b = color[0];
+                                      }
+                                      else
+                                      {
+                                          pointRGB.r = color[0];
+                                          pointRGB.g = color[1];
+                                          pointRGB.b = color[2];
+                                      }
                                   }
                               }
+
+                            //   if (x > 0 && x < pair.second->get_image_width() && y > 0 && y < pair.second->get_image_height() && point3d_transformed_camera[2] > 0)
+                            //   {
+                            //       cv::Vec3d color = pair.second->get_cv_image().at<cv::Vec3b>(cv::Point(x, y));
+                            //       cv::Scalar color_scalar(color[0], color[1], color[2]);
+                            //       pointRGB.x = point.x;
+                            //       pointRGB.y = point.y;
+                            //       pointRGB.z = point.z;
+                            //       if (pair.second->get_image_msg()->encoding == "bgr8")
+                            //       {
+                            //           pointRGB.r = color[2];
+                            //           pointRGB.g = color[1];
+                            //           pointRGB.b = color[0];
+                            //       }
+                            //       else
+                            //       {
+                            //           pointRGB.r = color[0];
+                            //           pointRGB.g = color[1];
+                            //           pointRGB.b = color[2];
+                            //       }
+                            //   }
+
                               laserCloudSurfLast->push_back(pointRGB);
                               cloud_surface.nextPoint();
                           }
@@ -662,9 +724,9 @@ public:
             return;
         cout << "****************************************************" << endl;
         cout << "Saving map to pcd files ..." << endl;
-        savePCDDirectory = std::getenv("HOME") + savePCDDirectory;
-        int unused = system((std::string("exec rm -r ") + savePCDDirectory).c_str());
-        unused = system((std::string("mkdir ") + savePCDDirectory).c_str());
+        savePCDDirectory = savePCDDirectory;
+        // int unused = system((std::string("exec rm -r ") + savePCDDirectory).c_str());
+        // unused = system((std::string("mkdir ") + savePCDDirectory).c_str());
         pcl::io::savePCDFileASCII(savePCDDirectory + "trajectory.pcd", *cloudKeyPoses3D);
         pcl::io::savePCDFileASCII(savePCDDirectory + "transformations.pcd", *cloudKeyPoses6D);
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr globalCornerCloud(new pcl::PointCloud<pcl::PointXYZRGB>());
@@ -951,6 +1013,32 @@ public:
 
     void loopFindNearKeyframes(pcl::PointCloud<PointType>::Ptr& nearKeyframes, const int& key, const int& searchNum)
     {
+        // // extract near keyframes
+        // nearKeyframes->clear();
+        // int cloudSize = copy_cloudKeyPoses6D->size();
+        // for (int i = -searchNum; i <= searchNum; ++i)
+        // {
+        //     int keyNear = key + i;
+        //     if (keyNear < 0 || keyNear >= cloudSize )
+        //         continue;
+
+        //     pcl::PointCloud<PointType>::Ptr corner_temp(new pcl::PointCloud<PointType>());
+        //     pcl::PointCloud<PointType>::Ptr surf_temp(new pcl::PointCloud<PointType>());
+        //     pcl::copyPointCloud(*cornerCloudKeyFrames[keyNear], *corner_temp);
+        //     pcl::copyPointCloud(*surfCloudKeyFrames[keyNear], *surf_temp);
+
+        //     *nearKeyframes += *transformPointCloud(corner_temp, &copy_cloudKeyPoses6D->points[keyNear]);
+        //     *nearKeyframes += *transformPointCloud(surf_temp,   &copy_cloudKeyPoses6D->points[keyNear]);
+        // }
+
+        // if (nearKeyframes->empty())
+        //     return;
+
+        // // downsample near keyframes
+        // pcl::PointCloud<PointType>::Ptr cloud_temp(new pcl::PointCloud<PointType>());
+        // downSizeFilterICP.setInputCloud(nearKeyframes);
+        // downSizeFilterICP.filter(*cloud_temp);
+        // *nearKeyframes = *cloud_temp;
         // extract near keyframes
         nearKeyframes->clear();
         int cloudSize = copy_cloudKeyPoses6D->size();
@@ -959,14 +1047,8 @@ public:
             int keyNear = key + i;
             if (keyNear < 0 || keyNear >= cloudSize )
                 continue;
-
-            pcl::PointCloud<PointType>::Ptr corner_temp(new pcl::PointCloud<PointType>());
-            pcl::PointCloud<PointType>::Ptr surf_temp(new pcl::PointCloud<PointType>());
-            pcl::copyPointCloud(*cornerCloudKeyFrames[keyNear], *corner_temp);
-            pcl::copyPointCloud(*surfCloudKeyFrames[keyNear], *surf_temp);
-
-            *nearKeyframes += *transformPointCloud(corner_temp, &copy_cloudKeyPoses6D->points[keyNear]);
-            *nearKeyframes += *transformPointCloud(surf_temp,   &copy_cloudKeyPoses6D->points[keyNear]);
+            *nearKeyframes += *transformPointCloud(cornerCloudKeyFrames[keyNear], &copy_cloudKeyPoses6D->points[keyNear]);
+            *nearKeyframes += *transformPointCloud(surfCloudKeyFrames[keyNear],   &copy_cloudKeyPoses6D->points[keyNear]);
         }
 
         if (nearKeyframes->empty())
@@ -1158,6 +1240,49 @@ public:
 
     void extractCloud(pcl::PointCloud<PointType>::Ptr cloudToExtract)
     {
+        // // fuse the map
+        // laserCloudCornerFromMap->clear();
+        // laserCloudSurfFromMap->clear(); 
+        // for (int i = 0; i < (int)cloudToExtract->size(); ++i)
+        // {
+        //     if (pointDistance(cloudToExtract->points[i], cloudKeyPoses3D->back()) > surroundingKeyframeSearchRadius)
+        //         continue;
+
+        //     int thisKeyInd = (int)cloudToExtract->points[i].intensity;
+        //     if (laserCloudMapContainer.find(thisKeyInd) != laserCloudMapContainer.end()) 
+        //     {
+        //         // transformed cloud available
+        //         *laserCloudCornerFromMap += laserCloudMapContainer[thisKeyInd].first;
+        //         *laserCloudSurfFromMap   += laserCloudMapContainer[thisKeyInd].second;
+        //     } else {
+        //         // transformed cloud not available
+        //         pcl::PointCloud<PointType>::Ptr corner_temp(new pcl::PointCloud<PointType>());
+        //         pcl::PointCloud<PointType>::Ptr surf_temp(new pcl::PointCloud<PointType>());
+        //         pcl::copyPointCloud(*cornerCloudKeyFrames[thisKeyInd], *corner_temp);
+        //         pcl::copyPointCloud(*surfCloudKeyFrames[thisKeyInd], *surf_temp);
+
+        //         pcl::PointCloud<PointType> laserCloudCornerTemp = *transformPointCloud(corner_temp,  &cloudKeyPoses6D->points[thisKeyInd]);
+        //         pcl::PointCloud<PointType> laserCloudSurfTemp = *transformPointCloud(surf_temp,    &cloudKeyPoses6D->points[thisKeyInd]);
+        //         *laserCloudCornerFromMap += laserCloudCornerTemp;
+        //         *laserCloudSurfFromMap   += laserCloudSurfTemp;
+        //         laserCloudMapContainer[thisKeyInd] = make_pair(laserCloudCornerTemp, laserCloudSurfTemp);
+        //     }
+            
+        // }
+
+        // // Downsample the surrounding corner key frames (or map)
+        // downSizeFilterCorner.setInputCloud(laserCloudCornerFromMap);
+        // downSizeFilterCorner.filter(*laserCloudCornerFromMapDS);
+        // laserCloudCornerFromMapDSNum = laserCloudCornerFromMapDS->size();
+        // // Downsample the surrounding surf key frames (or map)
+        // downSizeFilterSurf.setInputCloud(laserCloudSurfFromMap);
+        // downSizeFilterSurf.filter(*laserCloudSurfFromMapDS);
+        // laserCloudSurfFromMapDSNum = laserCloudSurfFromMapDS->size();
+
+        // // clear map cache if too large
+        // if (laserCloudMapContainer.size() > 1000)
+        //     laserCloudMapContainer.clear();
+
         // fuse the map
         laserCloudCornerFromMap->clear();
         laserCloudSurfFromMap->clear(); 
@@ -1174,13 +1299,8 @@ public:
                 *laserCloudSurfFromMap   += laserCloudMapContainer[thisKeyInd].second;
             } else {
                 // transformed cloud not available
-                pcl::PointCloud<PointType>::Ptr corner_temp(new pcl::PointCloud<PointType>());
-                pcl::PointCloud<PointType>::Ptr surf_temp(new pcl::PointCloud<PointType>());
-                pcl::copyPointCloud(*cornerCloudKeyFrames[thisKeyInd], *corner_temp);
-                pcl::copyPointCloud(*surfCloudKeyFrames[thisKeyInd], *surf_temp);
-
-                pcl::PointCloud<PointType> laserCloudCornerTemp = *transformPointCloud(corner_temp,  &cloudKeyPoses6D->points[thisKeyInd]);
-                pcl::PointCloud<PointType> laserCloudSurfTemp = *transformPointCloud(surf_temp,    &cloudKeyPoses6D->points[thisKeyInd]);
+                pcl::PointCloud<PointType> laserCloudCornerTemp = *transformPointCloud(cornerCloudKeyFrames[thisKeyInd],  &cloudKeyPoses6D->points[thisKeyInd]);
+                pcl::PointCloud<PointType> laserCloudSurfTemp = *transformPointCloud(surfCloudKeyFrames[thisKeyInd],    &cloudKeyPoses6D->points[thisKeyInd]);
                 *laserCloudCornerFromMap += laserCloudCornerTemp;
                 *laserCloudSurfFromMap   += laserCloudSurfTemp;
                 laserCloudMapContainer[thisKeyInd] = make_pair(laserCloudCornerTemp, laserCloudSurfTemp);
@@ -1219,16 +1339,26 @@ public:
 
     void downsampleCurrentScan()
     {
-        // Downsample cloud from current scan
-        laserCloudCornerLastDS->clear();
-        downSizeFilterCornerRGB.setInputCloud(laserCloudCornerLast);
-        downSizeFilterCornerRGB.filter(*laserCloudCornerLastDS);
-        laserCloudCornerLastDSNum = laserCloudCornerLastDS->size();
+        // // Downsample cloud from current scan
+        // laserCloudCornerLastDS->clear();
+        // downSizeFilterCornerRGB.setInputCloud(laserCloudCornerLast);
+        // downSizeFilterCornerRGB.filter(*laserCloudCornerLastDS);
+        // laserCloudCornerLastDSNum = laserCloudCornerLastDS->size();
 
-        laserCloudSurfLastDS->clear();
-        downSizeFilterSurfRGB.setInputCloud(laserCloudSurfLast);
-        downSizeFilterSurfRGB.filter(*laserCloudSurfLastDS);
-        laserCloudSurfLastDSNum = laserCloudSurfLastDS->size();
+        // laserCloudSurfLastDS->clear();
+        // downSizeFilterSurfRGB.setInputCloud(laserCloudSurfLast);
+        // downSizeFilterSurfRGB.filter(*laserCloudSurfLastDS);
+        // laserCloudSurfLastDSNum = laserCloudSurfLastDS->size();
+        // Downsample cloud from current scan
+        laserCloudCornerLastDSFull->clear();
+        downSizeFilterCorner.setInputCloud(laserCloudCornerLastFull);
+        downSizeFilterCorner.filter(*laserCloudCornerLastDSFull);
+        laserCloudCornerLastDSNum = laserCloudCornerLastDSFull->size();
+
+        laserCloudSurfLastDSFull->clear();
+        downSizeFilterSurf.setInputCloud(laserCloudSurfLastFull);
+        downSizeFilterSurf.filter(*laserCloudSurfLastDSFull);
+        laserCloudSurfLastDSNum = laserCloudSurfLastDSFull->size();
     }
 
     void updatePointAssociateToMap()
